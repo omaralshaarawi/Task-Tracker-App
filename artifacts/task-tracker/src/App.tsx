@@ -14,8 +14,8 @@ import {
   Flag,
   LayoutDashboard,
   ListFilter,
+  LogOut,
   Menu,
-  MoreHorizontal,
   Pencil,
   Plus,
   Search,
@@ -77,6 +77,7 @@ const clerkAppearance = {
     logoPlacement: 'inside' as const,
     logoLinkUrl: basePath || '/',
     logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+    showOptionalFields: true,
   },
   variables: {
     colorPrimary: 'hsl(43 88% 44%)',
@@ -215,7 +216,7 @@ function AppShell({ children }: { children: ReactNode }) {
                <p className="truncate text-[12px] font-bold text-sidebar-foreground">{displayName}</p>
               <p className="truncate text-[10px] text-sidebar-foreground/45">Personal workspace</p>
             </div>
-             <button type="button" data-testid="button-profile-menu" aria-label="Sign out" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="ml-auto rounded-lg p-1 text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground"><MoreHorizontal size={16} /></button>
+             <button type="button" data-testid="button-profile-menu" aria-label="Log out" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-sidebar-foreground/50 transition hover:bg-sidebar-accent hover:text-sidebar-foreground"><LogOut size={13} /> Log out</button>
           </div>
         </div>
       </aside>
@@ -563,6 +564,55 @@ function SignInPage() {
 }
 
 function SignUpPage() {
+  const { user } = useUser();
+  const savedName = typeof window === 'undefined' ? '' : sessionStorage.getItem('daymark-signup-name') ?? '';
+  const [name, setName] = useState(savedName);
+  const [started, setStarted] = useState(Boolean(savedName));
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    const pendingName = sessionStorage.getItem('daymark-signup-name');
+    if (!pendingName) return;
+    const [firstName, ...lastNameParts] = pendingName.trim().split(/\s+/);
+    void user.update({
+      firstName,
+      lastName: lastNameParts.join(' ') || undefined,
+    }).finally(() => sessionStorage.removeItem('daymark-signup-name'));
+  }, [user]);
+
+  if (!started) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+        <div className="w-full max-w-[440px] rounded-2xl border border-border bg-card p-7 shadow-[0_18px_60px_hsl(211_34%_18%/.08)] sm:p-9">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-xl bg-primary text-primary-foreground shadow-[0_5px_0_hsl(43_88%_42%)]">
+            <Zap size={21} strokeWidth={2.7} />
+          </div>
+          <div className="mt-6 text-center">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">A calmer place to land</p>
+            <h1 className="mt-2 text-2xl font-extrabold tracking-[-0.05em]">What should we call you?</h1>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">We’ll use your name to make your Daymark workspace feel personal.</p>
+          </div>
+          <form className="mt-7" onSubmit={(event) => {
+            event.preventDefault();
+            if (!name.trim()) {
+              setError('Enter your name to continue.');
+              return;
+            }
+            sessionStorage.setItem('daymark-signup-name', name.trim());
+            setStarted(true);
+          }}>
+            <label htmlFor="signup-name" className="text-[11px] font-bold uppercase tracking-[0.08em] text-muted-foreground">Your name</label>
+            <input id="signup-name" data-testid="input-signup-name" autoFocus value={name} onChange={(event) => { setName(event.target.value); setError(''); }} placeholder="e.g. Alex Morgan" className="mt-2 w-full rounded-xl border border-border bg-muted/50 px-3.5 py-3 text-sm font-semibold outline-none transition focus:border-primary focus:bg-card" />
+            {error && <p data-testid="status-signup-name-error" className="mt-2 text-xs font-semibold text-destructive">{error}</p>}
+            <button type="submit" data-testid="button-continue-signup" className="mt-5 w-full rounded-xl bg-primary px-4 py-3 text-xs font-extrabold text-primary-foreground transition hover:-translate-y-0.5 hover:shadow-[0_4px_0_hsl(43_88%_42%)]">Continue</button>
+          </form>
+          <p className="mt-6 text-center text-xs text-muted-foreground">Already have an account? <Link href="/sign-in" className="font-bold text-[hsl(33_70%_35%)] hover:underline">Sign in</Link></p>
+        </div>
+      </div>
+    );
+  }
+
   return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>;
 }
 
