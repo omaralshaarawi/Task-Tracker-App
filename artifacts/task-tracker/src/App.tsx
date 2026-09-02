@@ -566,8 +566,9 @@ function SignInPage() {
 function SignUpPage() {
   const { user } = useUser();
   const savedName = typeof window === 'undefined' ? '' : sessionStorage.getItem('daymark-signup-name') ?? '';
+  const isClerkContinuation = typeof window !== 'undefined' && stripBase(window.location.pathname).startsWith('/sign-up/');
   const [name, setName] = useState(savedName);
-  const [started, setStarted] = useState(Boolean(savedName));
+  const [started, setStarted] = useState(isClerkContinuation);
   const [error, setError] = useState('');
 
   useEffect(() => {
