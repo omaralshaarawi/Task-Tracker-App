@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
@@ -38,6 +38,9 @@ import {
   useListTasks,
   useUpdateTask,
 } from '@workspace/api-client-react';
+import { ClerkProvider, Show, SignIn, SignUp, useClerk, useUser } from '@clerk/react';
+import { publishableKeyFromHost } from '@clerk/react/internal';
+import { shadcn } from '@clerk/themes';
 import type {
   DashboardSummary,
   Task,
@@ -47,9 +50,74 @@ import type {
 } from '@workspace/api-client-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import NotFound from '@/pages/not-found';
-import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
+import { Link, Redirect, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 
 const queryClient = new QueryClient();
+const clerkPubKey = publishableKeyFromHost(
+  window.location.hostname,
+  import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+);
+const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+function stripBase(path: string) {
+  return basePath && path.startsWith(basePath)
+    ? path.slice(basePath.length) || '/'
+    : path;
+}
+
+if (!clerkPubKey) {
+  throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in .env file');
+}
+
+const clerkAppearance = {
+  theme: shadcn,
+  cssLayerName: 'clerk',
+  options: {
+    logoPlacement: 'inside' as const,
+    logoLinkUrl: basePath || '/',
+    logoImageUrl: `${window.location.origin}${basePath}/logo.svg`,
+  },
+  variables: {
+    colorPrimary: 'hsl(43 88% 44%)',
+    colorForeground: 'hsl(211 34% 18%)',
+    colorMutedForeground: 'hsl(211 14% 46%)',
+    colorDanger: 'hsl(0 58% 46%)',
+    colorBackground: 'hsl(42 38% 98%)',
+    colorInput: 'hsl(42 28% 96%)',
+    colorInputForeground: 'hsl(211 34% 18%)',
+    colorNeutral: 'hsl(211 18% 84%)',
+    fontFamily: 'Manrope, sans-serif',
+    borderRadius: '0.75rem',
+  },
+  elements: {
+    rootBox: 'w-full flex justify-center',
+    cardBox: 'bg-[#fbfaf7] rounded-2xl w-[440px] max-w-full overflow-hidden',
+    card: '!shadow-none !border-0 !bg-transparent !rounded-none',
+    footer: '!shadow-none !border-0 !bg-transparent !rounded-none',
+    headerTitle: 'text-[#1e2b3a] font-extrabold',
+    headerSubtitle: 'text-[#617080]',
+    socialButtonsBlockButtonText: 'text-[#1e2b3a] font-bold',
+    formFieldLabel: 'text-[#1e2b3a] font-bold',
+    footerActionLink: 'text-[#9b7111] font-bold',
+    footerActionText: 'text-[#617080]',
+    dividerText: 'text-[#617080]',
+    identityPreviewEditButton: 'text-[#9b7111]',
+    formFieldSuccessText: 'text-[#2d8976]',
+    alertText: 'text-[#9a3838]',
+    logoBox: 'h-12',
+    logoImage: 'h-12 w-12',
+    socialButtonsBlockButton: 'border-[#d9d7d0] bg-white hover:bg-[#f4f0e5]',
+    formButtonPrimary: 'bg-[#e9b31c] text-[#1e2b3a] hover:bg-[#dba613] font-extrabold',
+    formFieldInput: 'border-[#d9d7d0] bg-[#f7f5ef] text-[#1e2b3a]',
+    footerAction: 'border-t border-[#e6e1d7]',
+    dividerLine: 'bg-[#e6e1d7]',
+    alert: 'border-[#e6b4b4] bg-[#fff3f3]',
+    otpCodeFieldInput: 'border-[#d9d7d0] bg-[#f7f5ef] text-[#1e2b3a]',
+    formFieldRow: 'gap-2',
+    main: 'gap-6',
+  },
+};
 const statuses: TaskStatus[] = ['todo', 'in_progress', 'done'];
 const priorities: TaskPriority[] = ['low', 'medium', 'high'];
 
@@ -75,14 +143,22 @@ function priorityLabel(priority: TaskPriority) {
   return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
 
+function initials(firstName: string | null | undefined, lastName: string | null | undefined) {
+  return `${firstName?.[0] ?? ''}${lastName?.[0] ?? ''}`.toUpperCase() || 'U';
+}
+
 function AppShell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data: health } = useHealthCheck();
+  const { user } = useUser();
+  const { signOut } = useClerk();
   const dateLabel = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
+  const displayName = user?.firstName || user?.username || user?.primaryEmailAddress?.emailAddress?.split('@')[0] || 'Your workspace';
+  const displayInitials = initials(user?.firstName, user?.lastName);
 
   const nav = [
-    { href: '/', label: 'Overview', icon: LayoutDashboard },
+    { href: '/user-portal', label: 'Overview', icon: LayoutDashboard },
     { href: '/tasks', label: 'All tasks', icon: CheckCircle2 },
     { href: '/settings', label: 'Preferences', icon: SettingsIcon },
   ];
@@ -114,7 +190,7 @@ function AppShell({ children }: { children: ReactNode }) {
                 onClick={() => setMobileOpen(false)}
                 className={cn(
                   'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-all duration-200',
-                  location === href ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/60 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
+                  (location === href || (href === '/user-portal' && location === '/')) ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/60 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
                 )}
               >
                 <Icon size={16} strokeWidth={location === href ? 2.5 : 2} />
@@ -134,12 +210,12 @@ function AppShell({ children }: { children: ReactNode }) {
             <p className="mt-2 text-[11px] leading-relaxed text-sidebar-foreground/45">A small plan beats a loud mind.</p>
           </div>
           <div className="flex items-center gap-3 border-t border-sidebar-border px-1 pt-4">
-            <div className="grid h-8 w-8 place-items-center rounded-full bg-[hsl(168_35%_45%)] text-[11px] font-bold text-[hsl(42_38%_98%)]">AM</div>
+             <div className="grid h-8 w-8 place-items-center rounded-full bg-[hsl(168_35%_45%)] text-[11px] font-bold text-[hsl(42_38%_98%)]">{displayInitials}</div>
             <div className="min-w-0">
-              <p className="truncate text-[12px] font-bold text-sidebar-foreground">Alex Morgan</p>
+               <p className="truncate text-[12px] font-bold text-sidebar-foreground">{displayName}</p>
               <p className="truncate text-[10px] text-sidebar-foreground/45">Personal workspace</p>
             </div>
-            <button type="button" data-testid="button-profile-menu" className="ml-auto text-sidebar-foreground/40 hover:text-sidebar-foreground"><MoreHorizontal size={16} /></button>
+             <button type="button" data-testid="button-profile-menu" aria-label="Sign out" onClick={() => signOut({ redirectUrl: basePath || '/' })} className="ml-auto rounded-lg p-1 text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground"><MoreHorizontal size={16} /></button>
           </div>
         </div>
       </aside>
@@ -323,7 +399,7 @@ function Dashboard() {
     <>
       <section className="animate-rise-in flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div><p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{dateLabel}</p><h1 data-testid="text-dashboard-heading" className="mt-3 text-[clamp(2.1rem,5vw,3.6rem)] font-extrabold leading-[.98] tracking-[-0.065em]">{greeting}, Alex<span className="text-primary">.</span></h1><p className="mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground">A clear day starts with a visible next step. Here’s the shape of yours.</p></div>
-        <button type="button" data-testid="button-open-create-task" onClick={() => { setLocation('/'); setModalOpen(true); }} className="flex w-fit items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-xs font-extrabold transition hover:-translate-y-0.5 hover:border-primary hover:shadow-[0_4px_0_hsl(43_88%_42%/.25)]"><Plus size={15} /> Add a task <ArrowRight size={14} className="ml-2 text-muted-foreground" /></button>
+        <button type="button" data-testid="button-open-create-task" onClick={() => { setLocation('/user-portal'); setModalOpen(true); }} className="flex w-fit items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-xs font-extrabold transition hover:-translate-y-0.5 hover:border-primary hover:shadow-[0_4px_0_hsl(43_88%_42%/.25)]"><Plus size={15} /> Add a task <ArrowRight size={14} className="ml-2 text-muted-foreground" /></button>
       </section>
 
       <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -418,13 +494,115 @@ function SettingsPage() {
   );
 }
 
-function Router() {
+function LandingPage() {
+  return (
+    <main className="app-noise min-h-[100dvh] bg-background text-foreground">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 md:px-10">
+        <div className="flex items-center gap-3">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-primary-foreground shadow-[0_5px_0_hsl(43_88%_42%)]">
+            <Zap size={19} strokeWidth={2.7} />
+          </div>
+          <div>
+            <p className="text-base font-extrabold tracking-[-0.03em]">Daymark</p>
+            <p className="font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground">focus / forward</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/sign-in" className="rounded-xl px-4 py-2.5 text-xs font-extrabold text-muted-foreground transition hover:bg-muted hover:text-foreground">Sign in</Link>
+          <Link href="/sign-up" className="rounded-xl bg-primary px-4 py-2.5 text-xs font-extrabold text-primary-foreground transition hover:-translate-y-0.5 hover:shadow-[0_4px_0_hsl(43_88%_42%)]">Create account</Link>
+        </div>
+      </header>
+      <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-20 pt-16 md:grid-cols-[1.05fr_.95fr] md:px-10 md:pb-28 md:pt-24">
+        <div className="animate-rise-in">
+          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[hsl(33_70%_40%)]">A clearer way to move</p>
+          <h1 className="mt-5 max-w-2xl text-[clamp(3.25rem,8vw,6.5rem)] font-extrabold leading-[.9] tracking-[-0.08em]">Make the next step <span className="text-primary">visible.</span></h1>
+          <p className="mt-7 max-w-lg text-base leading-relaxed text-muted-foreground">Daymark gives your work a calm place to land. Capture what matters, see what’s moving, and keep momentum close.</p>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link href="/sign-up" className="rounded-xl bg-sidebar px-5 py-3 text-xs font-extrabold text-sidebar-foreground transition hover:-translate-y-0.5 hover:shadow-[0_5px_0_hsl(211_34%_18%/.28)]">Start planning</Link>
+            <Link href="/sign-in" className="rounded-xl border border-border bg-card px-5 py-3 text-xs font-extrabold transition hover:border-primary">I already have an account</Link>
+          </div>
+        </div>
+        <div className="animate-rise-in rounded-[28px] border border-border bg-card p-4 shadow-[0_18px_60px_hsl(211_34%_18%/.08)] md:p-6">
+          <div className="rounded-2xl bg-sidebar p-5 text-sidebar-foreground">
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-sidebar-foreground/55">Today’s shape</p>
+              <span className="rounded-full bg-primary/20 px-2 py-1 font-mono text-[9px] text-primary">LIVE PLAN</span>
+            </div>
+            <p className="mt-12 text-4xl font-extrabold tracking-[-0.07em]">3 things worth doing</p>
+            <div className="mt-8 space-y-3">
+              {['Map out the week', 'Polish the welcome flow', 'Send project recap'].map((item, index) => (
+                <div key={item} className="flex items-center gap-3 rounded-xl bg-sidebar-accent/70 px-3 py-3">
+                  <span className={cn('grid h-5 w-5 place-items-center rounded-full border-2', index === 2 ? 'border-[hsl(168_35%_45%)] bg-[hsl(168_35%_45%)] text-white' : index === 0 ? 'border-primary bg-primary/15' : 'border-sidebar-foreground/30')}>
+                    {index === 2 && <Check size={11} strokeWidth={3} />}
+                  </span>
+                  <span className={cn('text-xs font-bold', index === 2 && 'text-sidebar-foreground/45 line-through')}>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="mx-auto grid max-w-6xl gap-4 px-6 pb-16 sm:grid-cols-3 md:px-10">
+        {[
+          ['See the whole shape', 'A focused overview keeps priorities and progress in the same frame.'],
+          ['Keep context close', 'Add the detail you need without turning every task into a project plan.'],
+          ['Move with intention', 'Simple status changes make momentum visible and satisfying.'],
+        ].map(([title, description]) => (
+          <div key={title} className="rounded-2xl border border-border bg-card p-5">
+            <p className="text-sm font-extrabold">{title}</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{description}</p>
+          </div>
+        ))}
+      </section>
+    </main>
+  );
+}
+
+function SignInPage() {
+  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignIn routing="path" path={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} /></div>;
+}
+
+function SignUpPage() {
+  return <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4"><SignUp routing="path" path={`${basePath}/sign-up`} signInUrl={`${basePath}/sign-in`} /></div>;
+}
+
+function HomeRedirect() {
+  return <><Show when="signed-in"><Redirect to="/user-portal" /></Show><Show when="signed-out"><LandingPage /></Show></>;
+}
+
+function ProtectedRoutes() {
   const [location] = useLocation();
-  return <ErrorBoundary resetKey={location}><AppShell><Switch><Route path="/" component={Dashboard} /><Route path="/tasks" component={TasksPage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></AppShell></ErrorBoundary>;
+  return <><Show when="signed-in"><ErrorBoundary resetKey={location}><AppShell><Switch><Route path="/user-portal" component={Dashboard} /><Route path="/tasks" component={TasksPage} /><Route path="/settings" component={SettingsPage} /><Route component={NotFound} /></Switch></AppShell></ErrorBoundary></Show><Show when="signed-out"><Redirect to="/" /></Show></>;
+}
+
+function Router() {
+  return <Switch><Route path="/" component={HomeRedirect} /><Route path="/sign-in/*?" component={SignInPage} /><Route path="/sign-up/*?" component={SignUpPage} /><Route path="/user-portal" component={ProtectedRoutes} /><Route path="/tasks" component={ProtectedRoutes} /><Route path="/settings" component={ProtectedRoutes} /><Route component={NotFound} /></Switch>;
+}
+
+function ClerkQueryClientCacheInvalidator() {
+  const { addListener } = useClerk();
+  const queryClient = useQueryClient();
+  const previousUserId = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    const unsubscribe = addListener(({ user }) => {
+      const userId = user?.id ?? null;
+      if (previousUserId.current !== undefined && previousUserId.current !== userId) queryClient.clear();
+      previousUserId.current = userId;
+    });
+    return unsubscribe;
+  }, [addListener, queryClient]);
+
+  return null;
+}
+
+function ClerkProviderWithRoutes() {
+  const [, setLocation] = useLocation();
+  return <ClerkProvider publishableKey={clerkPubKey} proxyUrl={clerkProxyUrl} appearance={clerkAppearance} signInUrl={`${basePath}/sign-in`} signUpUrl={`${basePath}/sign-up`} localization={{ signIn: { start: { title: 'Welcome back', subtitle: 'Sign in to return to your plan' } }, signUp: { start: { title: 'Create your Daymark account', subtitle: 'Give your work a calmer place to land' } } }} routerPush={(to) => setLocation(stripBase(to))} routerReplace={(to) => setLocation(stripBase(to), { replace: true })}><QueryClientProvider client={queryClient}><ClerkQueryClientCacheInvalidator /><Router /></QueryClientProvider></ClerkProvider>;
 }
 
 function App() {
-  return <QueryClientProvider client={queryClient}><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter></QueryClientProvider>;
+  return <WouterRouter base={basePath}><ClerkProviderWithRoutes /></WouterRouter>;
 }
 
 export default App;

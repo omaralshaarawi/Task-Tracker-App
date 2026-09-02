@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or } from "drizzle-orm";
 import { db, tasksTable } from "@workspace/db";
+import { requireAuth } from "../middlewares/requireAuth";
 import {
   CreateTaskBody,
   CreateTaskResponse,
@@ -16,6 +17,7 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+router.use(requireAuth);
 
 function toDateOnly(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -25,7 +27,24 @@ function parseIdParam(raw: string | string[]): number {
   return Number(Array.isArray(raw) ? raw[0] : raw);
 }
 
+async function claimSeedTasks(userId: string): Promise<void> {
+  const [ownedTask] = await db
+    .select({ id: tasksTable.id })
+    .from(tasksTable)
+    .where(eq(tasksTable.ownerId, userId))
+    .limit(1);
+
+  if (!ownedTask) {
+    await db
+      .update(tasksTable)
+      .set({ ownerId: userId, updatedAt: new Date() })
+      .where(isNull(tasksTable.ownerId));
+  }
+}
+
 router.get("/tasks", async (req, res): Promise<void> => {
+  const userId = res.locals.userId as string;
+  await claimSeedTasks(userId);
   const parsed = ListTasksQueryParams.safeParse(req.query);
   if (!parsed.success) {
     req.log.warn({ errors: parsed.error.message }, "Invalid task filters");
@@ -48,13 +67,19 @@ router.get("/tasks", async (req, res): Promise<void> => {
   const tasks = await db
     .select()
     .from(tasksTable)
-    .where(filters.length ? and(...filters) : undefined)
+    .where(
+      and(
+        eq(tasksTable.ownerId, userId),
+        filters.length ? and(...filters) : undefined,
+      ),
+    )
     .orderBy(desc(tasksTable.updatedAt));
 
   res.json(ListTasksResponse.parse(tasks));
 });
 
 router.post("/tasks", async (req, res): Promise<void> => {
+  const userId = res.locals.userId as string;
   const parsed = CreateTaskBody.safeParse(req.body);
   if (!parsed.success) {
     req.log.warn({ errors: parsed.error.message }, "Invalid task body");
@@ -67,6 +92,7 @@ router.post("/tasks", async (req, res): Promise<void> => {
     .insert(tasksTable)
     .values({
       ...data,
+      ownerId: userId,
       dueDate: dueDate == null ? null : toDateOnly(dueDate),
     })
     .returning();
@@ -75,6 +101,7 @@ router.post("/tasks", async (req, res): Promise<void> => {
 });
 
 router.get("/tasks/:id", async (req, res): Promise<void> => {
+  const userId = res.locals.userId as string;
   const params = GetTaskParams.safeParse({
     id: parseIdParam(req.params.id),
   });
@@ -86,7 +113,9 @@ router.get("/tasks/:id", async (req, res): Promise<void> => {
   const [task] = await db
     .select()
     .from(tasksTable)
-    .where(eq(tasksTable.id, params.data.id));
+    .where(
+      and(eq(tasksTable.id, params.data.id), eq(tasksTable.ownerId, userId)),
+    );
 
   if (!task) {
     res.status(404).json({ error: "Task not found" });
@@ -97,6 +126,7 @@ router.get("/tasks/:id", async (req, res): Promise<void> => {
 });
 
 router.patch("/tasks/:id", async (req, res): Promise<void> => {
+  const userId = res.locals.userId as string;
   const params = UpdateTaskParams.safeParse({
     id: parseIdParam(req.params.id),
   });
@@ -124,7 +154,9 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
   const [task] = await db
     .update(tasksTable)
     .set(update)
-    .where(eq(tasksTable.id, params.data.id))
+    .where(
+      and(eq(tasksTable.id, params.data.id), eq(tasksTable.ownerId, userId)),
+    )
     .returning();
 
   if (!task) {
@@ -136,6 +168,7 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
 });
 
 router.delete("/tasks/:id", async (req, res): Promise<void> => {
+  const userId = res.locals.userId as string;
   const params = DeleteTaskParams.safeParse({
     id: parseIdParam(req.params.id),
   });
@@ -146,7 +179,9 @@ router.delete("/tasks/:id", async (req, res): Promise<void> => {
 
   const [task] = await db
     .delete(tasksTable)
-    .where(eq(tasksTable.id, params.data.id))
+    .where(
+      and(eq(tasksTable.id, params.data.id), eq(tasksTable.ownerId, userId)),
+    )
     .returning();
 
   if (!task) {
@@ -158,9 +193,12 @@ router.delete("/tasks/:id", async (req, res): Promise<void> => {
 });
 
 router.get("/dashboard/summary", async (_req, res): Promise<void> => {
+  const userId = res.locals.userId as string;
+  await claimSeedTasks(userId);
   const tasks = await db
     .select()
     .from(tasksTable)
+    .where(eq(tasksTable.ownerId, userId))
     .orderBy(desc(tasksTable.updatedAt));
 
   const today = new Date().toISOString().slice(0, 10);

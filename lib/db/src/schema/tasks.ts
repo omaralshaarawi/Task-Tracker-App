@@ -23,6 +23,7 @@ export const taskPriorityEnum = pgEnum("task_priority", [
 
 export const tasksTable = pgTable("tasks", {
   id: serial("id").primaryKey(),
+  ownerId: text("owner_id"),
   title: text("title").notNull(),
   description: text("description"),
   status: taskStatusEnum("status").notNull().default("todo"),

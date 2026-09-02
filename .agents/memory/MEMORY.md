@@ -1,1 +1,2 @@
 - [Date-only API serialization](date-only-api-serialization.md) — normalize calendar dates before formatting or binding them to inputs.
+- [Workspace package installs](workspace-package-installs.md) — target dependencies at their workspace package when root-level pnpm add is blocked.
