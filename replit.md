@@ -1,6 +1,6 @@
-# [Project name]
+# Daymark Task Tracker
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Daymark is a database-backed task tracker for turning a scattered workload into a clear daily plan.
 
 ## Run & Operate
 
@@ -22,23 +22,35 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/task-tracker/` — React + Vite dashboard, task list, and preferences screens
+- `artifacts/api-server/src/routes/tasks.ts` — task CRUD and dashboard summary endpoints
+- `lib/db/src/schema/tasks.ts` — PostgreSQL task schema and Drizzle model
+- `lib/api-spec/openapi.yaml` — source of truth for the generated API client and validation schemas
+- `artifacts/task-tracker/src/index.css` — Daymark visual theme and shared Tailwind tokens
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The API contract is defined in OpenAPI first and generated into the shared React Query client and Zod validators.
+- Tasks use PostgreSQL with serial IDs, enum-backed status and priority values, calendar-only due dates, and timestamped activity fields.
+- Dashboard totals and recent activity are derived from the same live task records as the task list, so mutations stay consistent after cache invalidation.
+- The app is intentionally single-workspace for the first version; user accounts and multi-workspace ownership can be layered on later.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- See total, in-progress, due-today, completion, and overdue signals at a glance
+- Create, edit, complete, reprioritize, filter, search, and delete tasks
+- Store optional descriptions and due dates in the live PostgreSQL database
+- Configure lightweight planning preferences locally
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+No explicit user preferences have been provided.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After changing `lib/api-spec/openapi.yaml`, run `pnpm --filter @workspace/api-spec run codegen`.
+- After changing a `lib/*` package, run `pnpm run typecheck:libs` before checking leaf packages.
+- The shared proxy routes API requests through `/api`; frontend calls should remain relative and use the generated client.
 
 ## Pointers
 

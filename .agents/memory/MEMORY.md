@@ -1,0 +1,1 @@
+- [Date-only API serialization](date-only-api-serialization.md) — normalize calendar dates before formatting or binding them to inputs.

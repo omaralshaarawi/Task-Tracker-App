@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Task Tracker"
+description = "A database-backed task tracker for organizing work with priorities, due dates, statuses, filters, and a clear productivity dashboard."
+version = "1.0.0"
+id = "artifacts/task-tracker"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26123
+
+[services.development]
+run = "pnpm --filter @workspace/task-tracker run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/task-tracker", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/task-tracker/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26123"
+BASE_PATH = "/"
